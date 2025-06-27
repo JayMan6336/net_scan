@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard</title>
+</head>
+<body>
+    <h1>Network Threats</h1>
+    <a href="{{ url_for('logout') }}">Logout</a>
+    <ul>
+        {% for threat in threats %}
+            <li>
+                <strong>Host:</strong> {{ threat.host }}<br>
+                <strong>MAC:</strong> {{ threat.mac }}<br>
+                <strong>Issue:</strong> {{ threat.issue }}<br>
+            </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>

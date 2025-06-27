@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Whitelist Device</title>
+</head>
+<body>
+    <h1>Whitelist a Device</h1>
+    <form method="POST" action="/whitelist">
+        <label for="mac">MAC Address:</label>
+        <input type="text" id="mac" name="mac" required><br><br>
+        <button type="submit">Whitelist</button>
+    </form>
+    <a href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+</body>
+</html>

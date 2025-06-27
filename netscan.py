@@ -8,13 +8,23 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from flask_mail import Mail, Message
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'
+app.secret_key = '64charsecretkey'
+# Flask-Mail configuration
+app.config.update(
+    MAIL_SERVER='smtp.gmail.com',
+    MAIL_PORT=587,
+    MAIL_USE_TLS=True,
+    MAIL_USERNAME='youremail@gmail.com',
+    MAIL_PASSWORD='apppassword',
+    MAIL_DEFAULT_SENDER='youremail@gmail.com'
+)
 
+mail = Mail(app)  # Initialize the mail object
 # Configuration
 NETWORK_RANGE = "192.168.1.0/24"  # Adjust to your LAN subnet
 KNOWN_DEVICES_FILE = "known_devices.json"
-CHECK_INTERVAL = 300  # Check every 5 minutes
-VULNERABLE_PORTS = [21, 23, 80, 8080, 3389]  # FTP, Telnet, HTTP, RDP, etc.
+CHECK_INTERVAL = 900  # Check every 15 minutes
+VULNERABLE_PORTS = [21,22,23,25,53,80,110,135,139,445,143,161,162,389,443,1433,1434,3306,3389,1521,5900,8080,27017,8443]  # FTP, Telnet, HTTP, RDP, etc.
 WHITELISTED_DEVICES_FILE = "whitelisted_devices.json"
 
 # Load or initialize known devices
@@ -41,53 +51,78 @@ def save_whitelisted_devices(devices):
     with open(WHITELISTED_DEVICES_FILE, "w") as f:
         json.dump(devices, f, indent=4)
 
-# Scan network with Nmap
+# Load or initialize known devices
+def load_known_devices():
+    if os.path.exists(KNOWN_DEVICES_FILE):
+        with open(KNOWN_DEVICES_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+# Save known devices
+def save_known_devices(devices):
+    with open(KNOWN_DEVICES_FILE, "w") as f:
+        json.dump(devices, f, indent=4)
+
 def scan_network():
     nm = nmap.PortScanner()
     threats = []
     known_devices = load_known_devices()
-    whitelisted_devices = load_whitelisted_devices()
-    
+    current_devices = {}
+
     try:
-        nm.scan(hosts=get_network_range(), arguments="-sn")  # Ping scan for devices
-        current_devices = {}
-        
+        # Initial scan for devices
+        nm.scan(hosts="192.168.1.0/24", arguments="-sn")
+        print("All hosts scanned:", nm.all_hosts())
+        print("Initial scan result keys:", nm._scan_result["scan"].keys())
+
         for host in nm.all_hosts():
-            if nm[host].state() == "up":
-                mac = nm[host]["addresses"].get("mac", "Unknown")
-                hostname = nm[host].hostname() or "Unknown"
-                current_devices[host] = {"mac": mac, "hostname": hostname}
-                
-                # Check for new devices
-                if host not in known_devices:
-                    threats.append({
-                        "host": host,
-                        "mac": mac,
-                        "hostname": hostname,
-                        "issue": "New device detected"
-                    })
-                
-                # Scan for vulnerable ports
-                nm.scan(hosts=host, arguments=f"-sV -O -p {','.join(map(str, VULNERABLE_PORTS))} --open")
-                for proto in nm[host].all_protocols():
-                    ports = nm[host][proto].keys()
-                    for port in ports:
+            try:
+                if nm[host].state() == "up":
+                    mac = nm[host]["addresses"].get("mac", "Unknown")
+                    hostname = nm[host].hostname() or "Unknown"
+                    current_devices[host] = {"mac": mac, "hostname": hostname}
+
+                    # Check for new devices
+                    if host not in known_devices:
                         threats.append({
                             "host": host,
                             "mac": mac,
                             "hostname": hostname,
-                            "issue": f"Open vulnerable port {port} ({nm[host][proto][port]['name']})"
+                            "issue": "New device detected"
                         })
-        
-        # Update known devices
-        save_known_devices(current_devices)
-        return threats
+
+                    # Port scan for each host (use a new PortScanner)
+                    port_scanner = nmap.PortScanner()
+                    port_scanner.scan(hosts=host, arguments=f"-sV -O -p {','.join(map(str, VULNERABLE_PORTS))} --open")
+                    print("Port scan result keys for", host, ":", port_scanner._scan_result["scan"].keys())
+                    for proto in port_scanner[host].all_protocols():
+                        ports = port_scanner[host][proto].keys()
+                        for port in ports:
+                            threats.append({
+                                "host": host,
+                                "mac": mac,
+                                "hostname": hostname,
+                                "issue": f"Open vulnerable port {port} ({port_scanner[host][proto][port]['name']})"
+                            })
+            except KeyError:
+                print(f"Host {host} is in all_hosts() but not in scan results!")
+                continue
+
     except Exception as e:
-        return [{"host": "Error", "mac": "N/A", "hostname": "N/A", "issue": f"Scan failed: {str(e)}"}]
+        print(f"Scan failed: {e}")
+        return [{"host": "Error", "mac": "N/A", "hostname": "N/A", "issue": f"Scan failed: {e}"}]
+
+    save_known_devices(current_devices)
+    print("Current devices:", current_devices)
+    print("Threats found:", threats)
+    return threats
+
+# Example usage (in your main script or route):
+# threats = scan_network()
 
 # Send notification email
 def send_notification(threat):
-    msg = Message("Network Threat Detected", sender="your-email@example.com", recipients=["admin@example.com"])
+    msg = Message("Network Threat Detected", sender="youremail@gmail.com", recipients=["recipient@email.com"])
     msg.body = f"Host: {threat['host']}\nMAC: {threat['mac']}\nHostname: {threat['hostname']}\nIssue: {threat['issue']}"
     mail.send(msg)
 
